@@ -10,7 +10,8 @@ def image_to_tensor(image: Union[np.ndarray, Image.Image], keepdim: bool = True)
 
     Args:
         image (numpy.ndarray or PIL Image): image of the form math:`(H, W, C)`, math: `(H, W)` or math:`(B, H, W, C)`.
-        keepdim (bool): If ``False`` unsqueeze the input image to match the shape math: `(B, H, W, C)`. Default: ``True``
+        keepdim (bool): If ``False`` unsqueeze the input image to match the shape
+        math: `(B, H, W, C)`. Default: ``True``
 
     Returns:
         torch.Tensor: tensor of the form math:`(B, C, H, W)` if keepdim is ``False``, math:`(C, H, W)` otherwise.

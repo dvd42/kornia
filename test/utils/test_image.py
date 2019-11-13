@@ -33,6 +33,7 @@ def test_image_to_tensor(input_shape, expected):
     assert tensor.shape == expected
     assert isinstance(tensor, torch.Tensor)
 
+
 @pytest.mark.parametrize("input_shape, expected",
                          [((4, 4), (1, 4, 4)),
                           ((1, 4, 4), (4, 1, 4)),
