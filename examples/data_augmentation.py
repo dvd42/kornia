@@ -15,39 +15,25 @@ import torch
 import cv2
 import matplotlib.pyplot as plt
 from PIL import Image
-
-# Necessary to parse VOC Targets
-import xml.etree.ElementTree as ET
-
+import glob
 
 ################################
-# 1. Create VOC dataset
-class VOC(VOCDetection):
-    def __init__(self, root, download=False, transform=None):
+# 1. Create dataset
+class DummyDataset():
+    def __init__(self, root, transform=None):
 
-        super(VOC, self).__init__(root, download=download, transform=transform)
+        self.images = sorted(glob.glob(root + "/*.jpg"))
+        self.targets = sorted(glob.glob(root + "/*.pth"))
+        self.transforms = transform
 
     def __len__(self):
-        return super(VOC, self).__len__()
+        return 4
 
     def __getitem__(self, index):
 
         img = Image.open(self.images[index]).convert("RGB")
-        target = self.parse_voc_xml(ET.parse(self.annotations[index]).getroot())
-        boxes = []
-        target = target["annotation"]["object"]
-        target = target if isinstance(target, list) else [target]
+        target = torch.load(self.targets[index])
 
-        # change to xmin, ymin, xmax, ymax
-        box = target[0]["bndbox"]
-        target = torch.FloatTensor(
-            [
-                float(box["xmin"]),
-                float(box["xmax"]),
-                float(box["ymin"]),
-                float(box["ymax"]),
-            ]
-        )
         ow, oh = img.size
 
         # Reescale boxes
@@ -59,7 +45,7 @@ class VOC(VOCDetection):
         target = target[perm]
 
         if self.transforms is not None:
-            img, target = self.transforms(img, target)
+            img = self.transforms(img)
 
         return img, target
 
@@ -130,12 +116,11 @@ print(f"Running with seed: {seed}")
 
 # create the dataloader
 batch_size = 4
-dataset = VOC(
-    root="data",
-    download=True,
+dataset = DummyDataset(
+    root="data/aug",
     transform=lambda x: kornia.image_to_tensor(Resize((512, 512))(x)),
 )
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 # get next batch
 images, targets = next(iter(dataloader))
