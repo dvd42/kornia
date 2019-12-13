@@ -6,13 +6,13 @@ In this data you learn how to use `kornia` modules in order to perform the data 
 """
 
 ################################
-import torch
-import cv2
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision.datasets import VOCDetection
 from torchvision.transforms import Resize
+import kornia
+import torch
+import cv2
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -85,14 +85,14 @@ def draw_boxes(original, images, transformed_targets, targets):
             images[i],
             (transformed_targets[i][0], transformed_targets[i][1]),
             (transformed_targets[i][2], transformed_targets[i][3]),
-            (0, 255, 0),
+            (0, 1, 0),
             2,
         ).get()
         original[i] = cv2.rectangle(
             original[i],
             (targets[i][0], targets[i][1]),
             (targets[i][2], targets[i][3]),
-            (0, 255, 0),
+            (0, 1, 0),
             2,
         ).get()
 
@@ -107,8 +107,6 @@ def transform_boxes(mat, targets):
 ################################
 # 2. Define the data augmentation operations
 # Thanks to the `kornia` design all the operators can be placed inside inside a `nn.Sequential`.
-
-import kornia
 
 transform = nn.Sequential(
     kornia.augmentation.ColorJitter(
@@ -139,32 +137,25 @@ dataset = VOC(
 )
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-# get samples and perform the data augmentation
-for i, (images, targets) in enumerate(dataloader):
+# get next batch
+images, targets = next(iter(dataloader))
 
-    # Run only the first 3 batches
-    if i == 3:
-        break
+# move tensors to GPU
+images = images.to(device) / 255
+targets = targets.to(device)
 
-    images = images.to(device) / 255
-    targets = targets.to(device)
+# keep a copy of the original image
+original = kornia.tensor_to_image(images)
 
-    original = kornia.tensor_to_image(images)
+# perform the transforms
+images, mat = transform(images)
+images = kornia.tensor_to_image(images)
 
-    # perform the transforms
-    images, mat = transform(images)
-    images = kornia.tensor_to_image(images)
+plot_images(original, images)
 
-    plot_images(original, images)
+# transform boxes
+transformed_targets = transform_boxes(mat, targets)
 
-    # transform boxes
-    transformed_targets = transform_boxes(mat, targets)
-
-    # draw boxes
-    original, images = draw_boxes(
-        (original * 255).astype("uint8"),
-        (images * 255).astype("uint8"),
-        transformed_targets,
-        targets,
-    )
-    plot_images(original, images)
+# draw boxes
+original, images = draw_boxes(original, images, transformed_targets, targets)
+plot_images(original, images)
