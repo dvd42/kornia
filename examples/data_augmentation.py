@@ -6,13 +6,14 @@ In this data you learn how to use `kornia` modules in order to perform the data 
 """
 
 ################################
-# 1. Create a dummy data loader
 import torch
+import cv2
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision.datasets import VOCDetection
 from torchvision.transforms import Resize
+import matplotlib.pyplot as plt
 from PIL import Image
 
 # Necessary to parse VOC Targets
@@ -22,31 +23,85 @@ import xml.etree.ElementTree as ET
 ################################
 # 1. Create VOC dataset
 class VOC(VOCDetection):
-
     def __init__(self, root, download=False, transform=None):
 
         super(VOC, self).__init__(root, download=download, transform=transform)
-
 
     def __len__(self):
         return super(VOC, self).__len__()
 
     def __getitem__(self, index):
 
-        img = Image.open(self.images[index]).convert('RGB')
+        img = Image.open(self.images[index]).convert("RGB")
         target = self.parse_voc_xml(ET.parse(self.annotations[index]).getroot())
         boxes = []
-        target = target['annotation']['object']
+        target = target["annotation"]["object"]
         target = target if isinstance(target, list) else [target]
-        for t in target:
-            boxes.append([int(c) for c in t['bndbox'].values()])
 
+        # change to xmin, ymin, xmax, ymax
+        box = target[0]["bndbox"]
+        target = torch.FloatTensor(
+            [
+                float(box["xmin"]),
+                float(box["xmax"]),
+                float(box["ymin"]),
+                float(box["ymax"]),
+            ]
+        )
+        ow, oh = img.size
 
-        boxes = torch.tensor(boxes)
+        # Reescale boxes
+        target[:2].mul_(512 / ow)
+        target[-2:].mul_(512 / oh)
+
+        # Reorder boxes as xyxy
+        perm = torch.LongTensor([0, 2, 1, 3])
+        target = target[perm]
+
         if self.transforms is not None:
             img, target = self.transforms(img, target)
 
-        return img
+        return img, target
+
+
+# Utils functions
+def plot_images(org, img):
+
+    fig, ax = plt.subplots(2, img.shape[0], sharex=True, sharey=True)
+    fig.suptitle("Original (Top) / Trasnformed (Bottom)", fontsize=16)
+    for b in range(img.shape[0]):
+        ax[0, b].imshow(org[b])
+        ax[1, b].imshow(img[b])
+
+    plt.xticks([])
+    plt.yticks([])
+    plt.show()
+
+
+def draw_boxes(original, images, transformed_targets, targets):
+
+    for i in range(original.shape[0]):
+        images[i] = cv2.rectangle(
+            images[i],
+            (transformed_targets[i][0], transformed_targets[i][1]),
+            (transformed_targets[i][2], transformed_targets[i][3]),
+            (0, 255, 0),
+            2,
+        ).get()
+        original[i] = cv2.rectangle(
+            original[i],
+            (targets[i][0], targets[i][1]),
+            (targets[i][2], targets[i][3]),
+            (0, 255, 0),
+            2,
+        ).get()
+
+    return original, images
+
+
+def transform_boxes(mat, targets):
+
+    return kornia.transform_points(mat, targets.view(-1, 2, 2).float()).view(-1, 4)
 
 
 ################################
@@ -56,31 +111,60 @@ class VOC(VOCDetection):
 import kornia
 
 transform = nn.Sequential(
-    # kornia.augmentation.ColorJitter(brightness=0.5, contrast=1.2, hue=0.5, saturation=0.3),
-    kornia.augmentation.RandomHorizontalFlip(0.5),
+    kornia.augmentation.ColorJitter(
+        brightness=(0.0, 0.0),
+        contrast=(1.0, 1.0),
+        hue=1.5,
+        saturation=2.0,
+        return_transform=True,
+    ),
+    kornia.augmentation.RandomHorizontalFlip(1.0, return_transform=True),
 )
 
 ################################
 # 3. Run the dataset and perform the data augmentation
 
-# NOTE: change device to 'cuda'
-device = torch.device('cpu')
+device = torch.device("cuda")
+seed = 0
+torch.manual_seed(seed)
 print(f"Running with device: {device}")
+print(f"Running with seed: {seed}")
 
 # create the dataloader
-dataset = VOC(root="data", download=True, transform=lambda x: kornia.image_to_tensor(Resize((512, 512))(x)))
-import ipdb; ipdb.set_trace()  # BREAKPOINT
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+batch_size = 4
+dataset = VOC(
+    root="data",
+    download=True,
+    transform=lambda x: kornia.image_to_tensor(Resize((512, 512))(x)),
+)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # get samples and perform the data augmentation
-for img in dataloader:
+for i, (images, targets) in enumerate(dataloader):
 
-    images = img.to(device)
-    # labels = target.to(device)
+    # Run only the first 3 batches
+    if i == 3:
+        break
+
+    images = images.to(device) / 255
+    targets = targets.to(device)
+
+    original = kornia.tensor_to_image(images)
 
     # perform the transforms
-    images = transform(images)
-    from PIL import Image
-    import ipdb; ipdb.set_trace()  # BREAKPOINT
+    images, mat = transform(images)
+    images = kornia.tensor_to_image(images)
 
-    print(f"Iteration: {i_batch} Image shape: {images.shape}")
+    plot_images(original, images)
+
+    # transform boxes
+    transformed_targets = transform_boxes(mat, targets)
+
+    # draw boxes
+    original, images = draw_boxes(
+        (original * 255).astype("uint8"),
+        (images * 255).astype("uint8"),
+        transformed_targets,
+        targets,
+    )
+    plot_images(original, images)
